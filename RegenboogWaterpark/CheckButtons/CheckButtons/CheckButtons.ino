@@ -8,6 +8,7 @@ byte addresses[][6] = {"Receiver", "Transmitter"};
 const int FLIP = 2;
 const int RANDOM = 3;
 const int ALLOFF = 4;
+const int RESUMEOPERATION = 5;
 
 // Define the number of rows and columns in the button matrix
 const int numRows = 3;
@@ -55,10 +56,10 @@ typedef struct {
 } message;
 
 //debug settings:
-#define debugInputMatrix  true
+#define debugInputMatrix  false
 #define debugRadio        false
 #define debugRandom       false
-#define debugOutputs      true //caveat, if debugging, valves 9 and  10 will also read high, since they're writing serial data :)
+#define debugOutputs      false //caveat, if debugging, valves 9 and  10 will also read high, since they're writing serial data :)
 #define debugOutputIntent false
 
 void toggleSolenoids() {
@@ -218,7 +219,17 @@ void loop() {
       randomMode = !randomMode;
     }
     else if(receivedmessage.state == ALLOFF){
-      randomMode = !randomMode;
+      for (int x = 0; x < 10; x++) {
+        digitalWrite(OutputPins[x], 0);
+      }
+      while(emergencyMode){
+        if (radio.available()){
+          if(receivedmessage.state == RESUMEOPERATION){
+            break;
+          }
+        }
+        delay(10);
+      }
     }
     else {
       solenoidStates[receivedmessage.target] = (bool)receivedmessage.state;
