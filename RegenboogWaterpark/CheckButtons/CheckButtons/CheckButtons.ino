@@ -6,13 +6,15 @@ byte addresses[][6] = {"Receiver", "Transmitter"};
 
 //define flip action
 const int FLIP = 2;
+const int RANDOM = 3;
+const int ALLOFF = 4;
 
 // Define the number of rows and columns in the button matrix
 const int numRows = 3;
 const int numCols = 4;
 
 // Define the pin mappings for rows and columns
-const int rowPins[numRows] = {A6, A5, A7};
+const int rowPins[numRows] = {A5, A6, A7};
 const int colPins[numCols] = {A1, A2, A3, A4};
 
 //use this set if you need serial debugging
@@ -24,10 +26,14 @@ const int OutputPins[numPins] = {2, 3, 4, 5, 6, 7, 8, A0, 0, 1};
 
 // Define an array to store the state of the solenoids
 bool solenoidStates[10] = {LOW, LOW, LOW, LOW, LOW, LOW, LOW, LOW, LOW, HIGH}; // main faucet starts high
+bool solenoidWorksDuringRandomMode[10] = {HIGH, HIGH, HIGH, LOW, LOW, LOW, LOW, LOW, LOW, LOW}; // if HIGH, random will influence the corresponding solenoid
+
 
 // random variables
 unsigned long previousMillis = 0;
 long interval = 1000;
+int minimalRandomSeconds = 40;
+int maximumRandomSeconds = 60;
 
 // Define a matrix to store the state of the buttons
 int buttonMatrix[numRows][numCols] = {
@@ -48,6 +54,13 @@ typedef struct {
   int state = 0;
 } message;
 
+//debug settings:
+#define debugInputMatrix  true
+#define debugRadio        false
+#define debugRandom       false
+#define debugOutputs      true //caveat, if debugging, valves 9 and  10 will also read high, since they're writing serial data :)
+#define debugOutputIntent false
+
 void toggleSolenoids() {
   //use button matrix to toggle all normal solenoids
   for (int row = 0; row < 2; row++) {
@@ -65,14 +78,16 @@ void toggleSolenoids() {
     solenoidStates[10] = LOW;
     //digitalWrite(OutputPins[10], LOW);
     //Serial.println("shut off");
-    
+
     //delay(3000);
   }
 }
 
 void setup() {
   // Initialize the serial communication
-  //Serial.begin(115200);
+  if (debugInputMatrix or debugOutputs or debugRandom or debugRadio or debugOutputIntent) {
+    Serial.begin(115200);
+  }
   //delay for startup
   //delay(5000);
   for (int i = 0; i < numPins; i++) {
@@ -126,7 +141,7 @@ void loop() {
     for (int col = 0; col < numCols; col++) {
       // Check if the current value is HIGH
       if (buttonMatrix[row][col] == HIGH && !(row == 2 && col == 2)) { //skip our toggle button
-//        Serial.print(String(row)+String(col));
+        //        Serial.print(String(row)+String(col));
         anyValueHigh = true;
         // Exit the loops since we found a HIGH value
         break;
@@ -151,22 +166,22 @@ void loop() {
   if (previousValueHigh == true && anyValueHigh == false) {
     previousValueHigh = false;
   }
-/*
-  //drain feature
-  if (buttonMatrix[2][2]) {
-    solenoidStates[10] = HIGH;
-    digitalWrite(OutputPins[10], HIGH);//toggle is an exclusion on updates too..
-
-//    Serial.println("draining");
-  }
-  else {
-    solenoidStates[10] = LOW;
-    digitalWrite(OutputPins[10], LOW);//toggle is an exclusion on updates too..
-
-//    Serial.println("not draining");
-  }
-*/
+  /*
     //drain feature
+    if (buttonMatrix[2][2]) {
+      solenoidStates[10] = HIGH;
+      digitalWrite(OutputPins[10], HIGH);//toggle is an exclusion on updates too..
+
+    //    Serial.println("draining");
+    }
+    else {
+      solenoidStates[10] = LOW;
+      digitalWrite(OutputPins[10], LOW);//toggle is an exclusion on updates too..
+
+    //    Serial.println("not draining");
+    }
+  */
+  //drain feature
   if (buttonMatrix[2][1]) {
     solenoidStates[9] = LOW;
     digitalWrite(OutputPins[9], LOW);//toggle is an exclusion on updates too..
@@ -176,23 +191,17 @@ void loop() {
   }
 
   // Print the state of the buttons, for debugging
-  
-//    for (int row = 0; row < numRows; row++) {
-//    for (int col = 0; col < numCols; col++) {
-//    Serial.print(buttonMatrix[row][col]);
-//    Serial.print('\t');
-//    }
-//    Serial.println();
-//    }
-//    Serial.println();
-  
-  // Print the state of solenoids, for debugging
-  /*
-    for (int x = 0; x <= 7; x++) {
-    Serial.print(solenoidStates[x]);
+  if (debugInputMatrix) {
+    for (int row = 0; row < numRows; row++) {
+      for (int col = 0; col < numCols; col++) {
+        Serial.print(buttonMatrix[row][col]);
+        Serial.print('\t');
+      }
+      Serial.println();
     }
-    Serial.print('\n');
-  */
+    Serial.println();
+  }
+
   //receive radio communication
   message receivedmessage;
   if ( radio.available()) {
@@ -204,10 +213,19 @@ void loop() {
     receivedmessage.target;
     if (receivedmessage.state == FLIP) {
       solenoidStates[receivedmessage.target] = !solenoidStates[receivedmessage.target];
-    } else {
+    } 
+    else if(receivedmessage.state == RANDOM){
+      randomMode = !randomMode;
+    }
+    else if(receivedmessage.state == ALLOFF){
+      randomMode = !randomMode;
+    }
+    else {
       solenoidStates[receivedmessage.target] = (bool)receivedmessage.state;
     }
-    //Serial.println("Received: " + String(receivedmessage.state) + ", " + String(receivedmessage.target));
+    if (debugRadio) {
+      Serial.println("Received: " + String(receivedmessage.state) + ", " + String(receivedmessage.target));
+    }
   }
 
   //write states to motors
@@ -215,24 +233,34 @@ void loop() {
     //toggleSolenoids();
     for (int x = 0; x < 10; x++) {
       digitalWrite(OutputPins[x], solenoidStates[x]);
-      
-//        Serial.print(OutputPins[x]);
-//        Serial.print(" - ");
-//        Serial.println(solenoidStates[x]);
-//      
+
     }
   } else if (millis() - previousMillis >= interval) {
     previousMillis = millis();
     for (int x = 0; x <= 7; x++) { //randomise the 8 valves
       bool state = random(0, 2);
+      if(solenoidWorksDuringRandomMode[x]){
       digitalWrite(OutputPins[x], state);
-      
-      //Serial.println(state);
-   }
-   //interval = random(8,20)*1000;
+      }
+    }
+    interval = random(minimalRandomSeconds, maximumRandomSeconds) * 1000;
+  }
+  if (debugOutputIntent) {
+    Serial.print("Output intents: ");
+    for (int x = 0; x < 10; x++) {
+      Serial.print(solenoidStates[x]);
+    }
+    Serial.print('\n');
+  }
+  if (debugOutputs) {
+    Serial.print("Actual outputs: ");
+    for (int x = 0; x < 10; x++) {
+      Serial.print(digitalRead(OutputPins[x]));
+    }
+    Serial.print('\n');
   }
 
-
+  Serial.println("\n--------------------------------------------------");
   // Wait for a short duration before reading the buttons again
   delay(100);
 }
