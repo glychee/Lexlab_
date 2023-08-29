@@ -26,8 +26,8 @@ const int OutputPins[numPins] = {2, 3, 4, 5, 6, 7, 8, A0, 0, 1};
 
 // Define an array to store the state of the solenoids
 bool solenoidStates[10] = {LOW, LOW, LOW, LOW, LOW, LOW, LOW, LOW, LOW, HIGH}; // main faucet starts high
-bool solenoidWorksDuringRandomMode[10] = {HIGH, HIGH, HIGH, LOW, LOW, LOW, LOW, LOW, LOW, LOW}; // if HIGH, random will influence the corresponding solenoid
-
+bool solenoidWorksDuringRandomMode[10] = {HIGH, HIGH, HIGH, HIGH, HIGH, HIGH, HIGH, HIGH, LOW, LOW}; // if HIGH, random will influence the corresponding solenoid
+int maximumSimultaneousSolenoids = 4; //sets how many solenoids will be on at most during random mode
 
 // random variables
 unsigned long previousMillis = 0;
@@ -160,27 +160,20 @@ void loop() {
     if (buttonMatrix[2][0]) {
       randomMode = !randomMode;
     }
+    //All off
+    if (buttonMatrix[2][0]) {
+      randomMode = false;
+      for (int x = 0; x < 9; x++) {
+        solenoidStates[x] = LOW;
+      }
+    }
     toggleSolenoids();
   }
   //reset the global check
   if (previousValueHigh == true && anyValueHigh == false) {
     previousValueHigh = false;
   }
-  /*
-    //drain feature
-    if (buttonMatrix[2][2]) {
-      solenoidStates[10] = HIGH;
-      digitalWrite(OutputPins[10], HIGH);//toggle is an exclusion on updates too..
 
-    //    Serial.println("draining");
-    }
-    else {
-      solenoidStates[10] = LOW;
-      digitalWrite(OutputPins[10], LOW);//toggle is an exclusion on updates too..
-
-    //    Serial.println("not draining");
-    }
-  */
   //drain feature
   if (buttonMatrix[2][1]) {
     solenoidStates[9] = LOW;
@@ -213,11 +206,11 @@ void loop() {
     receivedmessage.target;
     if (receivedmessage.state == FLIP) {
       solenoidStates[receivedmessage.target] = !solenoidStates[receivedmessage.target];
-    } 
-    else if(receivedmessage.state == RANDOM){
+    }
+    else if (receivedmessage.state == RANDOM) {
       randomMode = !randomMode;
     }
-    else if(receivedmessage.state == ALLOFF){
+    else if (receivedmessage.state == ALLOFF) {
       randomMode = !randomMode;
     }
     else {
@@ -237,10 +230,14 @@ void loop() {
     }
   } else if (millis() - previousMillis >= interval) {
     previousMillis = millis();
-    for (int x = 0; x <= 7; x++) { //randomise the 8 valves
+    int toggledSolenoids = 0;
+    for (int x = 0; (x <= 7) && (toggledSolenoids < maximumSimultaneousSolenoids); x++) { //randomise the 8 valves
       bool state = random(0, 2);
-      if(solenoidWorksDuringRandomMode[x]){
-      digitalWrite(OutputPins[x], state);
+      if (solenoidWorksDuringRandomMode[x]) {
+        digitalWrite(OutputPins[x], state);
+        if (state) {
+          toggledSolenoids++;
+        };
       }
     }
     interval = random(minimalRandomSeconds, maximumRandomSeconds) * 1000;
